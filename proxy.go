@@ -159,20 +159,21 @@ func processPacket(packet collectd.Packet) []*influxdb.Series {
 		hostName := strings.Replace(packet.Hostname, ".", "_", -1)
 
 		// if there's a PluginInstance, use it
-		pluginName := packet.Plugin
+		pluginInstanceName := packet.Plugin
 		if packet.PluginInstance != "" {
-			pluginName += "-" + packet.PluginInstance
+			pluginInstanceName += "-" + packet.PluginInstance
 		}
 
 		// if there's a TypeInstance, use it
 		typeName := packet.Type
 		if packet.TypeInstance != "" {
-			typeName += "-" + packet.TypeInstance
+			typeName += "." + packet.TypeInstance
 		} else if t != nil {
-			typeName += "-" + t[i][0]
+			typeName += "." + t[i][0]
 		}
 
-		name := hostName + "." + pluginName + "." + typeName
+		cacheName := hostName + "." + pluginInstanceName + "." + typeName
+		metricName := "collectd" + "." + typeName
 
 		// influxdb stuffs
 		timestamp := packet.Time().UnixNano() / 1000000
@@ -182,7 +183,7 @@ func processPacket(packet collectd.Packet) []*influxdb.Series {
 		normalizedValue := value
 
 		if *normalize && dataType == collectd.TypeCounter || *storeRates && dataType == collectd.TypeDerive {
-			if before, ok := beforeCache[name]; ok && before.Value != math.NaN() {
+			if before, ok := beforeCache[cacheName]; ok && before.Value != math.NaN() {
 				// normalize over time
 				if timestamp-before.Timestamp > 0 {
 					normalizedValue = (value - before.Value) / float64((timestamp-before.Timestamp)/1000)
@@ -197,15 +198,15 @@ func processPacket(packet collectd.Packet) []*influxdb.Series {
 				Timestamp: timestamp,
 				Value:     value,
 			}
-			beforeCache[name] = entry
+			beforeCache[cacheName] = entry
 		}
 
 		if readyToSend {
 			series := &influxdb.Series{
-				Name:    name,
-				Columns: []string{"time", "value"},
+				Name:    metricName,
+				Columns: []string{"time", "value","host","plugin", "type"},
 				Points: [][]interface{}{
-					[]interface{}{timestamp, normalizedValue},
+					[]interface{}{timestamp, normalizedValue, hostName, pluginInstanceName, typeName},
 				},
 			}
 			if *verbose {
